@@ -1,0 +1,35 @@
+; Shared settings.
+[general]
+; One database, used by every site below (each row is tagged with its
+; site name so histories don't mix).
+db_path = ./ftp_changes.db
+
+; One [site:NAME] section per FTP server you want to sync. NAME is your
+; own label — it shows up in log output and as the "site" column in the
+; database, so keep it short and unique.
+[site:example1]
+host = ftp.example1.com
+port = 21
+user = user1
+; Better to leave this blank and set FTP_PASSWORD_EXAMPLE1 in the
+; environment instead, or leave it blank to be prompted at run time.
+password =
+remote_root = /public
+local_dir = ./mirror/example1
+; Optional - defaults to <local_dir>/.snapshots if omitted. Each sync
+; run writes one dated .tar.gz here of the whole mirror as it stood
+; before that run's changes, so a bad sync (or a hacked source) can be
+; undone by extracting a single archive.
+snapshot_dir = ./mirror/example1/.snapshots
+use_tls = false
+encoding = latin-1
+
+[site:example2]
+host = ftp.example2.com
+port = 21
+user = user2
+password =
+remote_root = /incoming
+local_dir = ./mirror/example2
+use_tls = true
+encoding = utf-8
