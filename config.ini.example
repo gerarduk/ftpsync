@@ -15,12 +15,12 @@ user = user1
 ; environment instead, or leave it blank to be prompted at run time.
 password =
 remote_root = /public
-local_dir = ./mirror/example1
+local_dir = ./ftp_files/example1
 ; Optional - defaults to <local_dir>/.snapshots if omitted. Each sync
-; run writes one dated .tar.gz here of the whole mirror as it stood
+; run writes one dated .tar.gz here of the whole ftp_files as it stood
 ; before that run's changes, so a bad sync (or a hacked source) can be
 ; undone by extracting a single archive.
-snapshot_dir = ./mirror/example1/.snapshots
+snapshot_dir = ./ftp_files/example1/.snapshots
 use_tls = false
 encoding = latin-1
 
@@ -30,6 +30,6 @@ port = 21
 user = user2
 password =
 remote_root = /incoming
-local_dir = ./mirror/example2
+local_dir = ./ftp_files/example2
 use_tls = true
 encoding = utf-8

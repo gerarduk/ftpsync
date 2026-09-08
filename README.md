@@ -1,75 +1,100 @@
-# FTP Change Sync
+# ftp_sync on Raspberry Pi + OpenMediaVault
 
-Connects to an FTP server, walks every folder recursively, downloads and
-hashes each file, and compares it against the last known hash stored in a
-SQLite database. New and changed files are saved locally; every change is
-logged with a timestamp. Snapshots of the files are created prior to any
-updates being made.
+## What's in this bundle
 
-## Setup
+- `ftp_sync.py` - the sync program (multi-site, versioned snapshots).
+- `config.ini.example` - starter config, copied in automatically on install.
+- `install.sh` - sets everything up: venv, daily cron job, log rotation.
 
-```
-cp config.ini.example config.ini
-```
+## Prerequisites
 
-Edit `config.ini` with your server details. There are three options for password use:
-
-- Put it directly in `config.ini` (simplest, least secure)
-- Set the `FTP_PASSWORD` environment variable (keeps it out of the file)
-- Leave it blank - you'll be prompted for it each time you run the script
-
-Permissions on the config.ini should be restricted to the user running ftp_sync.
-
-
-## Usage
+On the Pi (Raspbian/Debian under OMV normally has these already):
 
 ```
-python ftp_sync.py [--config config.ini] [--dry-run] [--site name [name]]
+sudo apt update
+sudo apt install python3 python3-venv
 ```
 
-**--dry-run** previews what would change without downloading anything or touching the database:
+## Find your OMV shared folder path
+
+In the OMV web UI: **Storage > Shared Folders**, pick (or create) the folder
+you want the mirror to live in, and note its **Path** column - it'll look
+like `/srv/dev-disk-by-id-XXXXXXXX/ftp-mirror`. That's what config, the
+SQLite database, snapshots, and the mirrored files themselves will live
+under - keeping them on your storage array rather than the SD card.
+
+## Install
 
 ```
-python ftp_sync.py --config config.ini --dry-run
+sudo ./install.sh /srv/dev-disk-by-id-XXXXXXXX/ftp-mirror
 ```
 
-Since it hashes the full contents of every file, run time scales with the
-total size of the server, not just the number of files - this is thorough
-but not fast for a very large site.
+This will:
+- Copy `ftp_sync.py` into `/opt/ftp_sync` and create a venv there.
+- Create the shared-folder path above with a `config.ini` (only written if
+  one doesn't already exist there) and a `logs/` subfolder.
+- Install `/etc/cron.d/ftp_sync`, running the sync daily at 02:00, appending
+  output to `<shared_folder>/logs/ftp_sync.log`.
+- Install `/etc/logrotate.d/ftp_sync`, rotating that log weekly and keeping
+  8 weeks of history, compressed.
+- Own everything as whichever user you ran `sudo` as (so ordinary OMV/SSH
+  user, not root, unless you installed as root directly).
 
-## What gets stored
+Re-running `install.sh` later (e.g. after updating `ftp_sync.py`) is safe -
+it refreshes the script and venv but never overwrites an existing
+`config.ini`.
 
-**`mirror/`** (or wherever `local_dir` points) - a local copy of every file
-that has ever been downloaded, kept up to date with the newest version.
+## Configure
 
-**SQLite database** (`ftp_changes.db` by default) with two tables:
+Edit the config it created:
 
-- `files` - current state: path, hash, size, when first seen, when last
-  changed, when last checked. One row per file currently on the server.
-- `change_log` - full history: every new/modified/deleted event with the
-  old hash, new hash, size, and UTC timestamp. Nothing is ever deleted from
-  this table, so it's a complete audit trail.
-
-Example queries:
-
-```sql
--- Everything that changed in the last 24 hours
-SELECT * FROM change_log WHERE changed_at >= datetime('now', '-1 day');
-
--- Full change history for one file
-SELECT * FROM change_log WHERE path = '/site/index.html' ORDER BY changed_at;
-
--- Files removed from the server
-SELECT * FROM change_log WHERE change_type = 'deleted';
+```
+sudo nano /srv/dev-disk-by-id-XXXXXXXX/ftp-mirror/config.ini
 ```
 
-## Notes
+Add a `[site:NAME]` section per FTP server (see the comments in the file).
+**Cron jobs have no terminal**, so `ftp_sync.py`'s interactive password
+prompt will never fire under cron - put each site's password directly in
+`config.ini` (it's created at file mode `600`, readable only by the owning
+user) rather than relying on the prompt.
 
-- Files that disappear from the server are logged as `deleted` in
-  `change_log` and removed from the `files` table (their local copy in
-  `mirror/` is left alone - only the tracking record is removed).
-- If your server doesn't support the `MLSD` command, the script falls back
-  to `NLST` with directory probing, which is slower but works on older
-  FTP servers.
-- Run it by hand whenever you want a fresh sync; nothing is scheduled
-  automatically.
+## Test before trusting the cron job
+
+```
+sudo -u <your-user> /opt/ftp_sync/venv/bin/python /opt/ftp_sync/ftp_sync.py \
+    --config /srv/dev-disk-by-id-XXXXXXXX/ftp-mirror/config.ini --dry-run
+```
+
+Drop `--dry-run` once it looks right. Add `--site NAME` to test just one
+site.
+
+## Changing the schedule
+
+Edit `/etc/cron.d/ftp_sync` directly - standard 5-field cron syntax, with
+the username as the 6th field before the command. It defaults to:
+
+```
+0 2 * * * <user> /opt/ftp_sync/venv/bin/python ...
+```
+
+## Where everything ends up
+
+```
+/opt/ftp_sync/                                  # program + venv (SD card)
+/srv/.../ftp-mirror/
+├── config.ini                                  # your sites (mode 600)
+├── ftp_changes.db                               # shared change-tracking DB
+├── logs/ftp_sync.log                            # cron output, log-rotated
+└── mirror/<site>/
+    ├── ...current mirrored files...
+    └── .snapshots/<site>-<timestamp>.tar.gz     # full-tree snapshot per run
+```
+
+## Uninstalling
+
+```
+sudo rm -rf /opt/ftp_sync /etc/cron.d/ftp_sync /etc/logrotate.d/ftp_sync
+```
+
+Your `config.ini`, database, and mirrored files under the shared folder are
+left untouched - remove that folder yourself if you want it gone too.

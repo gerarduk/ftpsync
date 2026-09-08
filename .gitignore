@@ -1,2 +1,4 @@
 config.ini
-
+.idea
+ftp_files
+ftp_changes.db

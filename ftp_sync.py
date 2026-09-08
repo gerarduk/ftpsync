@@ -89,7 +89,7 @@ def load_config(path):
             print(f"Skipping section with empty site name: [{section_name}]")
             continue
         cfg = parser[section_name]
-        local_dir = cfg.get("local_dir", fallback=f"./{site_name}")
+        local_dir = cfg.get("local_dir", fallback=f"./ftp_files/{site_name}")
         sites[site_name] = {
             "name": site_name,
             "host": cfg.get("host", fallback=None),
@@ -266,7 +266,7 @@ def snapshot_tree(local_root, snapshot_root, site, timestamp):
     snapshot_root = Path(snapshot_root)
     snapshot_root.mkdir(parents=True, exist_ok=True)
     archive_path = snapshot_root / f"{site}-{timestamp}.tar.gz"
-
+    print(f"[{site}] Creating snapshot: {archive_path} ...")
     with tarfile.open(archive_path, "w:gz") as tar:
         for item in local_root.iterdir():
             if item == snapshot_root or snapshot_root in item.parents:
@@ -287,14 +287,6 @@ def sync_site(site_cfg, conn, dry_run=False):
     snapshot_root = Path(site_cfg["snapshot_dir"])
 
     now = datetime.now(timezone.utc).isoformat()
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-
-    # Snapshot the whole tree as it currently stands, before this run's
-    # changes are applied, so it can be restored in one go if needed.
-    if not dry_run:
-        snapshot_path = snapshot_tree(local_root, snapshot_root, site, timestamp)
-        if snapshot_path:
-            print(f"[{site}] Snapshotted current copy to {snapshot_path}")
 
     # Connect to the host and get the full list of files.
     print(f"[{site}] Connecting to {site_cfg['host']} ...")
@@ -389,6 +381,14 @@ def sync_site(site_cfg, conn, dry_run=False):
     ftp.quit()
     print("\033[K", end="", flush=True)
 
+    if not dry_run and new_count+modified_count+len(deleted)>0:
+        # Files have changed so create a new snapshot including these file changes.
+        if not dry_run:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            snapshot_path = snapshot_tree(local_root, snapshot_root, site, timestamp)
+            if snapshot_path:
+                print(f"[{site}] Snapshotted created.")
+
     print(f"\n[{site}] Summary:")
     print(f"  New:       {new_count}")
     print(f"  Modified:  {modified_count}")
@@ -398,11 +398,6 @@ def sync_site(site_cfg, conn, dry_run=False):
         print(f"  Errors:    {error_count}")
     if dry_run:
         print("  (dry run - nothing was downloaded, snapshotted, or written to the database)")
-    elif new_count+modified_count+len(deleted)==0:
-        # Nothing has changed so remove the snapshot
-        if snapshot_path:
-            print("Snapshot not needed.  Removing...")
-            os.remove(snapshot_path)
 
     print()
 
